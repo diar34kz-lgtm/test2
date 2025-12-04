@@ -114,10 +114,11 @@ async def main():
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("pay", pay))
 
+await app.bot.set_webhook(webhook_url)
+
 await app.run_webhook(
     listen="0.0.0.0",
     port=PORT,
-    webhook_url=webhook_url
 )
 
 if __name__ == "__main__":
