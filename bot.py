@@ -1,11 +1,14 @@
 import logging
 import os
-
 from datetime import datetime
 from dotenv import load_dotenv
 import gspread
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,28 +17,25 @@ logging.basicConfig(
 
 print("STARTING BOT...")
 
-# load .env when running locally; Render will use environment variables set in Dashboard
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # полный URL, например https://my-service.onrender.com
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE", "service_account.json")
 PORT = int(os.getenv("PORT", "8000"))
 
 if not BOT_TOKEN:
-    logging.error("BOT_TOKEN is not set. Exiting.")
     raise SystemExit("BOT_TOKEN is required")
 
 if not WEBHOOK_URL:
-    logging.error("WEBHOOK_URL is not set. Exiting.")
     raise SystemExit("WEBHOOK_URL is required")
 
 if not SPREADSHEET_ID:
-    logging.error("SPREADSHEET_ID is not set. Exiting.")
     raise SystemExit("SPREADSHEET_ID is required")
 
 gc = gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+
 
 def find_row(query):
     if query.isdigit():
@@ -48,6 +48,7 @@ def find_row(query):
             if query.lower() in name.lower():
                 return i
     return None
+
 
 def make_payment_text(payments):
     months = {
@@ -73,6 +74,7 @@ def make_payment_text(payments):
         lines.append(f"{amount}₽ {name} {phone} {bank} {receiver_text}")
 
     return "\n".join(lines)
+
 
 async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
@@ -106,20 +108,27 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(make_payment_text(payments))
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Бот на webhooks.\n/pay ID/ФИО СУММА")
 
+
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("pay", pay))
 
-await app.bot.set_webhook(webhook_url)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("pay", pay))
 
-await app.run_webhook(
-    listen="0.0.0.0",
-    port=PORT,
-)
+    # ВАЖНО: Webhook ставится здесь — внутри main()
+    await app.bot.set_webhook(WEBHOOK_URL)
+
+    print("Running webhook server...")
+
+    await app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+    )
+
 
 if __name__ == "__main__":
     import asyncio
