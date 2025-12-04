@@ -111,20 +111,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("pay", pay))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("pay", pay))
-
-    logging.info("Running webhook server...")
-
-    # Ensure WEBHOOK_URL doesn't have trailing slash
-    webhook_url = WEBHOOK_URL.rstrip('/')
-
-    await app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=webhook_url
-    )
+await app.run_webhook(
+    listen="0.0.0.0",
+    port=PORT,
+    webhook_url=webhook_url
+)
 
 if __name__ == "__main__":
     import asyncio
