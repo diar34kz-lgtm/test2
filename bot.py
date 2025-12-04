@@ -26,10 +26,8 @@ PORT = int(os.getenv("PORT", "8000"))
 
 if not BOT_TOKEN:
     raise SystemExit("BOT_TOKEN is required")
-
 if not WEBHOOK_URL:
     raise SystemExit("WEBHOOK_URL is required")
-
 if not SPREADSHEET_ID:
     raise SystemExit("SPREADSHEET_ID is required")
 
@@ -113,23 +111,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Бот на webhooks.\n/pay ID/ФИО СУММА")
 
 
-async def main():
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pay", pay))
 
-    # ВАЖНО: Webhook ставится здесь — внутри main()
-    await app.bot.set_webhook(WEBHOOK_URL)
-
-    print("Running webhook server...")
-
-    await app.run_webhook(
+    # PTB 21.x – правильный запуск webhook
+    app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
+        webhook_url=WEBHOOK_URL
     )
 
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
