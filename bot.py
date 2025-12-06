@@ -118,7 +118,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         row = sheet.row_values(row_id)
-
         name = row[1]
         phone = row[2] if len(row) > 2 else ""
         bank = row[3] if len(row) > 3 else ""
@@ -211,7 +210,6 @@ def main():
     app = (
         ApplicationBuilder()
         .token(BOT_TOKEN)
-        .job_queue_enabled()        # Включаем JobQueue
         .build()
     )
 
