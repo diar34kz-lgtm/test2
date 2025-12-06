@@ -3,6 +3,7 @@ import os
 from datetime import datetime, time
 from dotenv import load_dotenv
 import gspread
+from pytz import timezone
 
 from telegram import Update
 from telegram.ext import (
@@ -11,7 +12,6 @@ from telegram.ext import (
     MessageHandler,
     ContextTypes,
     CallbackContext,
-    JobQueue,
     filters
 )
 
@@ -45,19 +45,19 @@ sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 # Внутренний список платежей на день
 daily_payments = []
 
-# Куда отправлять автоматическую платежку
-chat_id_file = "chat_id.txt"
+# Файл, куда сохраняем chat_id для ежедневной отправки
+CHAT_FILE = "chat_id.txt"
 
 
 def save_chat_id(chat_id):
-    with open(chat_id_file, "w") as f:
+    with open(CHAT_FILE, "w") as f:
         f.write(str(chat_id))
 
 
 def get_chat_id():
-    if not os.path.exists(chat_id_file):
+    if not os.path.exists(CHAT_FILE):
         return None
-    with open(chat_id_file, "r") as f:
+    with open(CHAT_FILE, "r") as f:
         return int(f.read().strip())
 
 
@@ -137,7 +137,7 @@ async def payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(make_payment_text(daily_payments))
 
 
-# ------------ АВТО-ОТПРАВКА В 21:00 ------------------
+# ------------ АВТО-ОТПРАВКА В 21:00 ПО МОСКВЕ --------
 async def send_daily_payment(context: CallbackContext):
     chat_id = get_chat_id()
     if not chat_id:
@@ -156,7 +156,7 @@ async def send_daily_payment(context: CallbackContext):
 async def setchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cid = update.message.chat_id
     save_chat_id(cid)
-    await update.message.reply_text(f"Этот чат сохранён для ежедневной платежки.")
+    await update.message.reply_text("Этот чат сохранён для ежедневной платежки.")
 
 
 # ---------------------- /START ----------------------
@@ -208,7 +208,12 @@ async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------ ЗАПУСК BOT + WEBHOOK -------------------
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .job_queue_enabled()        # Включаем JobQueue
+        .build()
+    )
 
     # Команды
     app.add_handler(CommandHandler("start", start))
@@ -219,9 +224,13 @@ def main():
     # Сообщения
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, register_user))
 
-    # JobQueue — ежедневная отправка в 21:00
-    job_queue = app.job_queue
-    job_queue.run_daily(send_daily_payment, time=time(21, 0), name="daily_payment")
+    # JobQueue — ежедневная отправка в 21:00 по Москве
+    moscow = timezone("Europe/Moscow")
+    app.job_queue.run_daily(
+        send_daily_payment,
+        time=time(21, 0, tzinfo=moscow),
+        name="daily_payment"
+    )
 
     print("Running webhook server...")
 
