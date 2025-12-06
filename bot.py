@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, time
 from dotenv import load_dotenv
 import gspread
 
@@ -10,6 +10,8 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     ContextTypes,
+    CallbackContext,
+    JobQueue,
     filters
 )
 
@@ -39,6 +41,24 @@ if not SPREADSHEET_ID:
 # --------------------- GOOGLE SHEETS ----------------
 gc = gspread.service_account(filename=SERVICE_ACCOUNT_FILE)
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
+
+# Внутренний список платежей на день
+daily_payments = []
+
+# Куда отправлять автоматическую платежку
+chat_id_file = "chat_id.txt"
+
+
+def save_chat_id(chat_id):
+    with open(chat_id_file, "w") as f:
+        f.write(str(chat_id))
+
+
+def get_chat_id():
+    if not os.path.exists(chat_id_file):
+        return None
+    with open(chat_id_file, "r") as f:
+        return int(f.read().strip())
 
 
 # ---------------------- ПОИСК -----------------------
@@ -88,8 +108,6 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Указывать надо парами: ID/ФИО СУММА")
         return
 
-    payments = []
-
     for i in range(0, len(args), 2):
         query = args[i]
         amount = args[i + 1]
@@ -106,24 +124,49 @@ async def pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bank = row[3] if len(row) > 3 else ""
         receiver = row[4] if len(row) > 4 else ""
 
-        payments.append((amount, name, phone, bank, receiver))
+        daily_payments.append((amount, name, phone, bank, receiver))
 
-    if not payments:
-        await update.message.reply_text("Нет найденных данных.")
+    await update.message.reply_text("Добавлено в платежку!")
+
+
+# ---------------------- /PAYMENT --------------------
+async def payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not daily_payments:
+        await update.message.reply_text("Платежей сегодня нет.")
+    else:
+        await update.message.reply_text(make_payment_text(daily_payments))
+
+
+# ------------ АВТО-ОТПРАВКА В 21:00 ------------------
+async def send_daily_payment(context: CallbackContext):
+    chat_id = get_chat_id()
+    if not chat_id:
         return
 
-    await update.message.reply_text(make_payment_text(payments))
+    if not daily_payments:
+        return
+
+    text = make_payment_text(daily_payments)
+    await context.bot.send_message(chat_id=chat_id, text=text)
+
+    daily_payments.clear()
+
+
+# ---------------------- /SETCHAT ---------------------
+async def setchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cid = update.message.chat_id
+    save_chat_id(cid)
+    await update.message.reply_text(f"Этот чат сохранён для ежедневной платежки.")
 
 
 # ---------------------- /START ----------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Привет! Отправьте данные в формате:\n\n"
-        "ФИО Иванов Петр\n"
-        "Телефон 89112223344\n"
-        "Банк ТИНЬКОФФ\n"
-        "Получатель Иванова Ирина\n\n"
-        "Это автоматически добавит вас в таблицу."
+        "Бот работает.\n"
+        "/pay — добавить в платежку\n"
+        "/payment — показать текущую платежку\n"
+        "/setchat — выбрать чат для авто-отправки\n\n"
+        "Добавление в таблицу работает автоматически."
     )
 
 
@@ -133,7 +176,6 @@ async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = text.split("\n")
     data = {}
 
-    # Разбор строк вида "Ключ значение"
     for line in lines:
         if " " not in line:
             continue
@@ -147,9 +189,7 @@ async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not full_name or not phone:
         await update.message.reply_text(
-            "Ошибка: обязательно укажите:\n"
-            "ФИО ...\n"
-            "Телефон ..."
+            "Ошибка: обязательно укажите:\nФИО ...\nТелефон ..."
         )
         return
 
@@ -170,9 +210,18 @@ async def register_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Команды
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pay", pay))
+    app.add_handler(CommandHandler("payment", payment))
+    app.add_handler(CommandHandler("setchat", setchat))
+
+    # Сообщения
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, register_user))
+
+    # JobQueue — ежедневная отправка в 21:00
+    job_queue = app.job_queue
+    job_queue.run_daily(send_daily_payment, time=time(21, 0), name="daily_payment")
 
     print("Running webhook server...")
 
